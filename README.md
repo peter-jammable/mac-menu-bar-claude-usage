@@ -2,9 +2,8 @@
 
 macOS menu bar app to monitor your Claude Pro/Max rate limits.
 
-| Low | Moderate | High |
-|-----|----------|------|
-| ![Low](assets/usage_low.png) | ![Moderate](assets/usage_moderate.png) | ![High](assets/usage_high.png) |
+| ![](assets/usage_1.png) | ![](assets/usage_2.png) | ![](assets/usage_3.png) |
+|---|---|---|
 
 ## Features
 
