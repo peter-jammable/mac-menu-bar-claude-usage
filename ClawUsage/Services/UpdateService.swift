@@ -19,7 +19,19 @@ final class UpdateService: ObservableObject {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 
+    /// Returns true if this is an App Store build (has receipt)
+    var isAppStoreBuild: Bool {
+        Bundle.main.appStoreReceiptURL?.lastPathComponent == "receipt"
+    }
+
     func checkForUpdates(silent: Bool = false) async {
+        // App Store builds get updates through the App Store, not GitHub
+        if isAppStoreBuild {
+            if !silent {
+                showAlert(title: "Updates", message: "Updates are delivered through the Mac App Store.")
+            }
+            return
+        }
         let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest")!
 
         var request = URLRequest(url: url)

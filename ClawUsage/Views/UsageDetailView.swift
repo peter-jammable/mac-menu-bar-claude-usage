@@ -67,12 +67,14 @@ struct UsageDetailView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 Spacer()
-                Button("Check for Updates") {
-                    viewModel.checkForUpdates()
+                if !UpdateService.shared.isAppStoreBuild {
+                    Button("Check for Updates") {
+                        viewModel.checkForUpdates()
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.secondary)
+                    .font(.caption2)
                 }
-                .buttonStyle(.borderless)
-                .foregroundColor(.secondary)
-                .font(.caption2)
             }
         }
         .padding(16)
