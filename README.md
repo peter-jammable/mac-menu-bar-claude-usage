@@ -1,4 +1,4 @@
-# ClawUsage
+# ClaudeUsage
 
 macOS menu bar app to monitor your Claude Pro/Max rate limits.
 
