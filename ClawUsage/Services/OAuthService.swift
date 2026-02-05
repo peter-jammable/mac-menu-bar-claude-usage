@@ -206,19 +206,13 @@ final class OAuthService: ObservableObject {
                     </style>
                 </head>
                 <body>
-                    <svg class="icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="50" cy="50" r="40" fill="#1a1a2e" stroke="#2d2d44" stroke-width="3"/>
-                        <path d="M 16 55 A 34 34 0 1 1 84 55" fill="none" stroke="#3d3d5c" stroke-width="6" stroke-linecap="round"/>
-                        <path d="M 16 55 A 34 34 0 0 1 62 18" fill="none" stroke="url(#grad)" stroke-width="6" stroke-linecap="round"/>
-                        <defs>
-                            <linearGradient id="grad" x1="0%" y1="100%" x2="100%" y2="0%">
-                                <stop offset="0%" style="stop-color:#22c55e"/>
-                                <stop offset="50%" style="stop-color:#eab308"/>
-                                <stop offset="100%" style="stop-color:#ef4444"/>
-                            </linearGradient>
-                        </defs>
-                        <circle cx="50" cy="50" r="8" fill="white"/>
-                        <line x1="50" y1="50" x2="62" y2="22" stroke="white" stroke-width="4" stroke-linecap="round"/>
+                    <svg class="icon" viewBox="0 0 50 40" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Top bar - green default state -->
+                        <rect x="5" y="8" width="40" height="8" rx="3" stroke="white" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
+                        <rect x="6" y="9" width="11" height="6" rx="2" fill="#22c55e"/>
+                        <!-- Bottom bar -->
+                        <rect x="5" y="24" width="40" height="8" rx="3" stroke="white" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
+                        <rect x="6" y="25" width="7" height="6" rx="2" fill="#22c55e"/>
                     </svg>
                     <h1>Success!</h1>
                     <p>You can close this tab, your menu bar is all setup.</p>
