@@ -4,6 +4,7 @@ macOS menu bar app to monitor your Claude Pro/Max rate limits.
 
 | ![](assets/usage_1.png) | ![](assets/usage_2.png) | ![](assets/usage_3.png) |
 |---|---|---|
+| *Top bar: 5-hour session / Bottom bar: 7-day weekly* ||
 
 ## Features
 
