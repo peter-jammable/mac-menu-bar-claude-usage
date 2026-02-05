@@ -1,0 +1,52 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install XcodeGen
+      run: brew install xcodegen
+
+    - name: Generate Xcode Project
+      run: xcodegen generate
+
+    - name: Build App
+      run: |
+        xcodebuild -project ClawUsage.xcodeproj \
+          -scheme ClawUsage \
+          -configuration Release \
+          -derivedDataPath build \
+          CODE_SIGN_IDENTITY="-" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+
+    - name: Create DMG
+      run: |
+        mkdir -p dmg_contents
+        cp -R build/Build/Products/Release/ClawUsage.app dmg_contents/
+        ln -s /Applications dmg_contents/Applications
+        hdiutil create -volname "ClawUsage" -srcfolder dmg_contents -ov -format UDZO ClawUsage-${{ github.ref_name }}.dmg
+
+    - name: Create ZIP
+      run: |
+        cd build/Build/Products/Release
+        zip -r ../../../../ClawUsage-${{ github.ref_name }}.zip ClawUsage.app
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ClawUsage-${{ github.ref_name }}.dmg
+          ClawUsage-${{ github.ref_name }}.zip
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
