@@ -4,6 +4,12 @@
 
 Monitor your Anthropic Claude API rate limits, session usage, weekly quotas, and reset times - all from your Mac menu bar.
 
+## Screenshots
+
+| Low Usage | Moderate Usage | High Usage |
+|-----------|----------------|------------|
+| ![Low](assets/usage_low.png) | ![Moderate](assets/usage_moderate.png) | ![High](assets/usage_high.png) |
+
 ## What It Does
 
 ClawUsage sits in your macOS menu bar and shows your **Claude Pro** and **Claude Max** subscription usage at a glance:
