@@ -79,6 +79,8 @@ struct UsageDetailView: View {
         }
         .padding(16)
         .frame(width: 280)
+        .background(Color(red: 58/255, green: 58/255, blue: 62/255))
+        .preferredColorScheme(.dark)
     }
 }
 

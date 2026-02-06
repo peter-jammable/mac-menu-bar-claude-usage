@@ -8,29 +8,31 @@ enum MenuBarIconRenderer {
     static func render(fiveHour: Double, sevenDay: Double) -> NSImage {
         let width: CGFloat = 24
         let height: CGFloat = 22
-        let barHeight: CGFloat = 6
+        let barHeight: CGFloat = 8
         let gap: CGFloat = 4
         let cornerRadius: CGFloat = 2
-        let inset: CGFloat = 0.5
+        let inset: CGFloat = 1.5
+        let sidePadding: CGFloat = 1
 
         // Two bars stacked vertically, centered
         let totalHeight = barHeight * 2 + gap
         let topBarY = (height + totalHeight) / 2 - barHeight  // top bar
         let bottomBarY = (height - totalHeight) / 2           // bottom bar
+        let barWidth = width - sidePadding * 2
 
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             // Draw top bar (5-hour session)
             drawBar(
-                x: 0, y: topBarY,
-                width: width, height: barHeight,
+                x: sidePadding, y: topBarY,
+                width: barWidth, height: barHeight,
                 percentage: fiveHour,
                 cornerRadius: cornerRadius, inset: inset
             )
 
             // Draw bottom bar (7-day weekly)
             drawBar(
-                x: 0, y: bottomBarY,
-                width: width, height: barHeight,
+                x: sidePadding, y: bottomBarY,
+                width: barWidth, height: barHeight,
                 percentage: sevenDay,
                 cornerRadius: cornerRadius, inset: inset
             )
@@ -43,9 +45,7 @@ enum MenuBarIconRenderer {
     }
 
     private static var borderColor: NSColor {
-        // Use label color which automatically adapts to dark/light mode
-        // Dark mode: white, Light mode: black
-        NSColor.labelColor.withAlphaComponent(0.7)
+        NSColor.labelColor
     }
 
     private static func drawBar(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, percentage: Double, cornerRadius: CGFloat, inset: CGFloat) {
@@ -54,7 +54,7 @@ enum MenuBarIconRenderer {
         let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: cornerRadius, yRadius: cornerRadius)
 
         borderColor.setStroke()
-        bgPath.lineWidth = 1
+        bgPath.lineWidth = 1.5
         bgPath.stroke()
 
         // Fill

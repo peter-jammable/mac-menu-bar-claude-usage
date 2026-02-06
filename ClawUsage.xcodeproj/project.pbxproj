@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -12,6 +12,7 @@
 		48A1BD693E9C63FB84813BFE /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3585A383C6FCC7BC6EF8F14 /* UpdateService.swift */; };
 		9686D6579EC2D055345F5ECA /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 832EF732BE212D101422A201 /* KeychainService.swift */; };
 		A958D19FCC1BF3044696D904 /* MenuBarIconRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E662E1EFFF839A4C255033CA /* MenuBarIconRenderer.swift */; };
+		AA12345678901234DEF00001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA12345678901234DEF00002 /* Assets.xcassets */; };
 		AE2808394242670DC1A4BF99 /* UsageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140B26273FE7ABA3BC12CD5C /* UsageDetailView.swift */; };
 		CBA161E07EABF75581DB1DF6 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6FC7BBF6CA01D84C493024 /* LoginView.swift */; };
 		D67B66650D105E01AEA7B24A /* ClawUsageApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1381893BB91AB3001FEDB0EF /* ClawUsageApp.swift */; };
@@ -28,6 +29,7 @@
 		5E06B7E335102A8B5CC67A89 /* ClawUsage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClawUsage.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7D56B4B73BC023FA52ED88E5 /* OAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthService.swift; sourceTree = "<group>"; };
 		832EF732BE212D101422A201 /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
+		AA12345678901234DEF00002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B51C80EFA7E214372B5964D7 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
 		C2C5A1AAA4CB4FDBB9E43ECE /* ClawUsage.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClawUsage.entitlements; sourceTree = "<group>"; };
 		CE6FC7BBF6CA01D84C493024 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
@@ -65,6 +67,7 @@
 		BD9225CDE1F9171ED9E7B8CC = {
 			isa = PBXGroup;
 			children = (
+				AA12345678901234DEF00002 /* Assets.xcassets */,
 				F1026577AC11893CB1040BB8 /* ClawUsage */,
 				A6FD7454913B51D72638858B /* Products */,
 			);
@@ -111,6 +114,7 @@
 			buildConfigurationList = 8FE91182281DF8C7EF123204 /* Build configuration list for PBXNativeTarget "ClawUsage" */;
 			buildPhases = (
 				2C5E320F00E1A489DF028215 /* Sources */,
+				AA12345678901234DEF00003 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -147,7 +151,6 @@
 			);
 			mainGroup = BD9225CDE1F9171ED9E7B8CC;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -155,6 +158,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA12345678901234DEF00003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA12345678901234DEF00001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2C5E320F00E1A489DF028215 /* Sources */ = {
@@ -241,6 +255,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = S4S5CRS4W2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ClawUsage/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -262,6 +277,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = S4S5CRS4W2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ClawUsage/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

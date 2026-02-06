@@ -5,9 +5,9 @@ struct LoginView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "chart.bar.fill")
-                .font(.system(size: 40))
-                .foregroundColor(.accentColor)
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
 
             Text("ClawUsage")
                 .font(.headline)
@@ -47,5 +47,7 @@ struct LoginView: View {
         }
         .padding(20)
         .frame(width: 260)
+        .background(Color(red: 58/255, green: 58/255, blue: 62/255))
+        .preferredColorScheme(.dark)
     }
 }
