@@ -37,6 +37,11 @@ open ClawUsage.xcodeproj
 - macOS 13.0+
 - Claude Pro or Max subscription
 
+## Troubleshooting
+
+**Menu bar icon not showing?**
+[OnlySwitch](https://github.com/jacklandrin/OnlySwitch) and similar menu bar management apps can hide ClawUsage. If the icon isn't appearing, try disabling OnlySwitch or adding ClawUsage to its whitelist.
+
 ## License
 
 MIT
