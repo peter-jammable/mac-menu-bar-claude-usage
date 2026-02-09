@@ -16,7 +16,13 @@ macOS menu bar app to monitor your Claude Pro/Max rate limits.
 
 ## Install
 
-**Download** from [Releases](https://github.com/peter-jammable/mac-menu-bar-claude-usage/releases/latest) or build from source:
+**Download** the DMG from [Releases](https://github.com/peter-jammable/mac-menu-bar-claude-usage/releases/latest), drag ClawUsage to Applications, then remove the quarantine flag:
+
+```bash
+xattr -d com.apple.quarantine /Applications/ClawUsage.app
+```
+
+Or build from source:
 
 ```bash
 brew install xcodegen
