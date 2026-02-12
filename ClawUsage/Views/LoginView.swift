@@ -22,6 +22,12 @@ struct LoginView: View {
                 Text("Waiting for authorization...")
                     .font(.caption2)
                     .foregroundColor(.secondary)
+                Button("Cancel") {
+                    viewModel.cancelSignIn()
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.secondary)
+                .font(.caption)
             } else {
                 Button("Sign in with Claude") {
                     viewModel.signIn()

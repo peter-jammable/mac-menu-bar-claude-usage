@@ -72,6 +72,7 @@ final class OAuthService: ObservableObject {
             window.contentView = webView
             window.center()
             window.isReleasedWhenClosed = false
+            window.delegate = delegate
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             self.authWindow = window
@@ -124,10 +125,14 @@ final class OAuthService: ObservableObject {
         return response
     }
 
-    func signOut() {
+    func cancelSignIn() {
         authWindow?.close()
         authWindow = nil
         webViewDelegate = nil
+    }
+
+    func signOut() {
+        cancelSignIn()
         KeychainService.deleteAll()
     }
 
@@ -189,7 +194,7 @@ final class OAuthService: ObservableObject {
 
 // MARK: - WKWebView delegate that intercepts localhost callback
 
-private final class OAuthWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
+private final class OAuthWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
     private var continuation: CheckedContinuation<URL, Error>?
     private var popupWebView: WKWebView?
     private var popupWindow: NSWindow?
@@ -270,6 +275,16 @@ private final class OAuthWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDe
         popupWindow = nil
         popupWebView = nil
     }
+
+    // MARK: - NSWindowDelegate
+
+    func windowWillClose(_ notification: Notification) {
+        popupWindow?.close()
+        popupWindow = nil
+        popupWebView = nil
+        continuation?.resume(throwing: OAuthError.cancelled)
+        continuation = nil
+    }
 }
 
 // MARK: - Errors
@@ -277,6 +292,7 @@ private final class OAuthWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDe
 enum OAuthError: LocalizedError {
     case noRefreshToken
     case invalidCallback
+    case cancelled
     case tokenExchangeFailed(statusCode: Int, body: String)
 
     var errorDescription: String? {
@@ -285,6 +301,8 @@ enum OAuthError: LocalizedError {
             return "No refresh token available. Please sign in again."
         case .invalidCallback:
             return "Invalid or missing authorization callback."
+        case .cancelled:
+            return "Sign in was cancelled."
         case .tokenExchangeFailed(let code, let body):
             return "Token exchange failed (\(code)): \(body)"
         }

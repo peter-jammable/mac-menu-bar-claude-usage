@@ -34,11 +34,20 @@ final class AppViewModel: ObservableObject {
                 isAuthenticated = true
                 isLoading = false
                 startPolling()
+            } catch is CancellationError {
+                isLoading = false
+            } catch OAuthError.cancelled {
+                isLoading = false
             } catch {
                 errorMessage = error.localizedDescription
                 isLoading = false
             }
         }
+    }
+
+    func cancelSignIn() {
+        oauthService.cancelSignIn()
+        isLoading = false
     }
 
     func signOut() {
