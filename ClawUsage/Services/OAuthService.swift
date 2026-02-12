@@ -1,5 +1,5 @@
 import Foundation
-import Network
+import WebKit
 import CryptoKit
 import AppKit
 
@@ -17,13 +17,13 @@ final class OAuthService: ObservableObject {
     private let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private let authorizeURL = "https://claude.ai/oauth/authorize"
     private let tokenURL = "https://console.anthropic.com/v1/oauth/token"
+    private let redirectURI = "http://localhost:19876/callback"
     private let scopes = "user:profile user:inference"
 
-    private var listener: NWListener?
     private var verifier: String = ""
     private var state: String = ""
-    private var callbackPort: UInt16 = 0
-    private var authContinuation: CheckedContinuation<OAuthTokenResponse, Error>?
+    private var authWindow: NSWindow?
+    private var webViewDelegate: OAuthWebViewDelegate?
 
     var isAuthenticated: Bool {
         KeychainService.load(key: .accessToken) != nil
@@ -35,18 +35,10 @@ final class OAuthService: ObservableObject {
 
     /// Start the full OAuth PKCE flow
     func signIn() async throws -> OAuthTokenResponse {
-        // Generate PKCE verifier + challenge + state
         verifier = generateVerifier()
-        state = generateVerifier() // reuse same random generation for state
+        state = generateVerifier()
         let challenge = generateChallenge(from: verifier)
 
-        // Start localhost listener for callback
-        let port = try await startListener()
-        callbackPort = port
-
-        let redirectURI = "http://localhost:\(port)/callback"
-
-        // Build authorize URL
         var components = URLComponents(string: authorizeURL)!
         components.queryItems = [
             URLQueryItem(name: "response_type", value: "code"),
@@ -59,14 +51,58 @@ final class OAuthService: ObservableObject {
         ]
 
         let url = components.url!
-        NSWorkspace.shared.open(url)
 
-        // Wait for the callback
-        let response: OAuthTokenResponse = try await withCheckedThrowingContinuation { continuation in
-            self.authContinuation = continuation
+        let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
+            let config = WKWebViewConfiguration()
+            config.preferences.javaScriptCanOpenWindowsAutomatically = true
+            let webView = WKWebView(frame: .zero, configuration: config)
+            webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+            let delegate = OAuthWebViewDelegate(continuation: continuation)
+            webView.navigationDelegate = delegate
+            webView.uiDelegate = delegate
+            self.webViewDelegate = delegate
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Sign in with Claude"
+            window.contentView = webView
+            window.center()
+            window.isReleasedWhenClosed = false
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            self.authWindow = window
+
+            webView.load(URLRequest(url: url))
         }
 
-        // Store tokens
+        // Clean up
+        authWindow?.close()
+        authWindow = nil
+        webViewDelegate = nil
+
+        // Extract code and validate state
+        guard let cbComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+              let code = cbComponents.queryItems?.first(where: { $0.name == "code" })?.value else {
+            throw OAuthError.invalidCallback
+        }
+        let returnedState = cbComponents.queryItems?.first(where: { $0.name == "state" })?.value
+        guard returnedState == self.state else {
+            throw OAuthError.invalidCallback
+        }
+
+        let body: [String: String] = [
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": clientID,
+            "code_verifier": verifier,
+            "redirect_uri": redirectURI,
+            "state": state,
+        ]
+        let response = try await exchangeToken(body: body)
         saveTokens(response)
         return response
     }
@@ -89,7 +125,9 @@ final class OAuthService: ObservableObject {
     }
 
     func signOut() {
-        stopListener()
+        authWindow?.close()
+        authWindow = nil
+        webViewDelegate = nil
         KeychainService.deleteAll()
     }
 
@@ -115,162 +153,12 @@ final class OAuthService: ObservableObject {
         return Data(hash).base64URLEncoded()
     }
 
-    // MARK: - Localhost listener
-
-    private func startListener() async throws -> UInt16 {
-        return try await withCheckedThrowingContinuation { continuation in
-            do {
-                let listener = try NWListener(using: .tcp, on: .any)
-                self.listener = listener
-
-                listener.stateUpdateHandler = { state in
-                    switch state {
-                    case .ready:
-                        if let port = listener.port {
-                            continuation.resume(returning: port.rawValue)
-                        }
-                    case .failed(let error):
-                        continuation.resume(throwing: error)
-                    default:
-                        break
-                    }
-                }
-
-                listener.newConnectionHandler = { [weak self] connection in
-                    Task { @MainActor in
-                        self?.handleConnection(connection)
-                    }
-                }
-
-                listener.start(queue: .main)
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-
-    private func stopListener() {
-        listener?.cancel()
-        listener = nil
-    }
-
-    private func handleConnection(_ connection: NWConnection) {
-        connection.start(queue: .main)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
-            guard let data = data, let request = String(data: data, encoding: .utf8) else {
-                connection.cancel()
-                return
-            }
-
-            // Parse the code + state from the GET request
-            let result = OAuthService.extractCode(from: request)
-
-            Task { @MainActor in
-                guard let self = self else { return }
-
-                guard let result = result, result.state == self.state else {
-                    let errorResponse = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Error</h1><p>Missing or invalid authorization code.</p></body></html>"
-                    OAuthService.sendHTTPResponse(errorResponse, on: connection)
-                    return
-                }
-
-                // Send success response to browser
-                let successResponse = """
-                HTTP/1.1 200 OK\r
-                Content-Type: text/html\r
-                \r
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <title>Claw</title>
-                    <style>
-                        body {
-                            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            justify-content: center;
-                            height: 100vh;
-                            margin: 0;
-                            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                            color: white;
-                        }
-                        .icon {
-                            width: 80px;
-                            height: 80px;
-                            margin-bottom: 24px;
-                        }
-                        h1 { margin: 0 0 12px 0; font-size: 28px; }
-                        p { margin: 0; opacity: 0.8; font-size: 16px; }
-                    </style>
-                </head>
-                <body>
-                    <svg class="icon" viewBox="0 0 50 40" xmlns="http://www.w3.org/2000/svg">
-                        <!-- Top bar - green default state -->
-                        <rect x="5" y="8" width="40" height="8" rx="3" stroke="white" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-                        <rect x="6" y="9" width="11" height="6" rx="2" fill="#22c55e"/>
-                        <!-- Bottom bar -->
-                        <rect x="5" y="24" width="40" height="8" rx="3" stroke="white" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-                        <rect x="6" y="25" width="7" height="6" rx="2" fill="#22c55e"/>
-                    </svg>
-                    <h1>Success!</h1>
-                    <p>You can close this tab, your menu bar is all setup.</p>
-                </body>
-                </html>
-                """
-                OAuthService.sendHTTPResponse(successResponse, on: connection)
-
-                self.stopListener()
-                do {
-                    let redirectURI = "http://localhost:\(self.callbackPort)/callback"
-                    let body: [String: String] = [
-                        "grant_type": "authorization_code",
-                        "code": result.code,
-                        "client_id": self.clientID,
-                        "code_verifier": self.verifier,
-                        "redirect_uri": redirectURI,
-                        "state": self.state,
-                    ]
-                    let response = try await self.exchangeToken(body: body)
-                    self.authContinuation?.resume(returning: response)
-                    self.authContinuation = nil
-                } catch {
-                    self.authContinuation?.resume(throwing: error)
-                    self.authContinuation = nil
-                }
-            }
-        }
-    }
-
-    private static func sendHTTPResponse(_ response: String, on connection: NWConnection) {
-        let data = Data(response.utf8)
-        connection.send(content: data, completion: .contentProcessed({ _ in
-            connection.cancel()
-        }))
-    }
-
-    private static func extractCode(from request: String) -> (code: String, state: String?)? {
-        // Parse "GET /callback?code=xxx&state=yyy HTTP/1.1"
-        guard let firstLine = request.split(separator: "\r\n").first else { return nil }
-        let parts = firstLine.split(separator: " ")
-        guard parts.count >= 2 else { return nil }
-        let path = String(parts[1])
-        guard let components = URLComponents(string: path),
-              let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
-            return nil
-        }
-        let state = components.queryItems?.first(where: { $0.name == "state" })?.value
-        return (code: code, state: state)
-    }
-
     // MARK: - Token exchange
 
     private func exchangeToken(body: [String: String]) async throws -> OAuthTokenResponse {
         var request = URLRequest(url: URL(string: tokenURL)!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        // Use URLComponents to properly encode form body (matches URLSearchParams behavior)
         var components = URLComponents()
         components.queryItems = body.map { URLQueryItem(name: $0.key, value: $0.value) }
         let formBody = components.percentEncodedQuery ?? ""
@@ -299,16 +187,104 @@ final class OAuthService: ObservableObject {
     }
 }
 
+// MARK: - WKWebView delegate that intercepts localhost callback
+
+private final class OAuthWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private var continuation: CheckedContinuation<URL, Error>?
+    private var popupWebView: WKWebView?
+    private var popupWindow: NSWindow?
+
+    init(continuation: CheckedContinuation<URL, Error>) {
+        self.continuation = continuation
+        super.init()
+    }
+
+    private func isLocalhostCallback(_ url: URL) -> Bool {
+        guard let host = url.host else { return false }
+        return (host == "localhost" || host == "127.0.0.1") && url.path == "/callback"
+    }
+
+    private func handleCallback(_ url: URL) {
+        popupWindow?.close()
+        popupWindow = nil
+        popupWebView = nil
+        continuation?.resume(returning: url)
+        continuation = nil
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if let url = navigationAction.request.url {
+            if isLocalhostCallback(url) {
+                decisionHandler(.cancel)
+                handleCallback(url)
+                return
+            }
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        // If loading localhost failed, check if the URL was our callback
+        if let url = webView.url, isLocalhostCallback(url) {
+            handleCallback(url)
+            return
+        }
+        if (error as NSError).code == NSURLErrorCancelled { return }
+    }
+
+    // Handle popups (Google sign-in)
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        let popup = WKWebView(frame: .zero, configuration: configuration)
+        popup.customUserAgent = webView.customUserAgent
+        popup.navigationDelegate = self
+        popup.uiDelegate = self
+        self.popupWebView = popup
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Sign in"
+        window.contentView = popup
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        self.popupWindow = window
+
+        return popup
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        popupWindow?.close()
+        popupWindow = nil
+        popupWebView = nil
+    }
+}
+
 // MARK: - Errors
 
 enum OAuthError: LocalizedError {
     case noRefreshToken
+    case invalidCallback
     case tokenExchangeFailed(statusCode: Int, body: String)
 
     var errorDescription: String? {
         switch self {
         case .noRefreshToken:
             return "No refresh token available. Please sign in again."
+        case .invalidCallback:
+            return "Invalid or missing authorization callback."
         case .tokenExchangeFailed(let code, let body):
             return "Token exchange failed (\(code)): \(body)"
         }
