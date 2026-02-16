@@ -3,11 +3,26 @@ import Combine
 
 @MainActor
 final class AppViewModel: ObservableObject {
-    @Published var isAuthenticated = false
     @Published var usageData: UsageData = .empty
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var menuBarIcon: NSImage = MenuBarIconRenderer.placeholder()
+
+    /// Derived from Keychain — no separate boolean to drift out of sync.
+    var isAuthenticated: Bool {
+        oauthService.isAuthenticated
+    }
+
+    var menuBarIcon: NSImage {
+        guard isAuthenticated else {
+            return MenuBarIconRenderer.placeholder()
+        }
+        let fiveHour = usageData.five_hour?.usagePercent ?? 0
+        let sevenDay = usageData.seven_day?.usagePercent ?? 0
+        if fiveHour == 0 && sevenDay == 0 && usageData.five_hour == nil {
+            return MenuBarIconRenderer.placeholder()
+        }
+        return MenuBarIconRenderer.render(fiveHour: fiveHour, sevenDay: sevenDay)
+    }
 
     private let oauthService = OAuthService.shared
     private let updateService = UpdateService.shared
@@ -15,7 +30,6 @@ final class AppViewModel: ObservableObject {
     private let pollInterval: TimeInterval = 180 // 3 minutes
 
     init() {
-        isAuthenticated = oauthService.isAuthenticated
         if isAuthenticated {
             startPolling()
         }
@@ -31,7 +45,6 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 _ = try await oauthService.signIn()
-                isAuthenticated = true
                 isLoading = false
                 startPolling()
             } catch is CancellationError {
@@ -53,9 +66,7 @@ final class AppViewModel: ObservableObject {
     func signOut() {
         stopPolling()
         oauthService.signOut()
-        isAuthenticated = false
         usageData = .empty
-        menuBarIcon = MenuBarIconRenderer.placeholder()
         errorMessage = nil
     }
 
@@ -94,7 +105,7 @@ final class AppViewModel: ObservableObject {
 
     private func fetchUsage() async {
         guard oauthService.accessToken != nil else {
-            isAuthenticated = false
+            usageData = .empty
             return
         }
 
@@ -113,10 +124,6 @@ final class AppViewModel: ObservableObject {
         do {
             let data = try await RateLimitService.fetchUsage(accessToken: currentToken)
             usageData = data
-            menuBarIcon = MenuBarIconRenderer.render(
-                fiveHour: data.five_hour?.usagePercent ?? 0,
-                sevenDay: data.seven_day?.usagePercent ?? 0
-            )
             errorMessage = nil
         } catch let error as RateLimitError where error == .unauthorized {
             do {
@@ -124,10 +131,6 @@ final class AppViewModel: ObservableObject {
                 guard let refreshedToken = oauthService.accessToken else { return }
                 let data = try await RateLimitService.fetchUsage(accessToken: refreshedToken)
                 usageData = data
-                menuBarIcon = MenuBarIconRenderer.render(
-                fiveHour: data.five_hour?.usagePercent ?? 0,
-                sevenDay: data.seven_day?.usagePercent ?? 0
-            )
                 errorMessage = nil
             } catch {
                 signOut()
