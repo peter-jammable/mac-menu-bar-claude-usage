@@ -6,11 +6,7 @@ final class AppViewModel: ObservableObject {
     @Published var usageData: UsageData = .empty
     @Published var isLoading = false
     @Published var errorMessage: String?
-
-    /// Derived from Keychain — no separate boolean to drift out of sync.
-    var isAuthenticated: Bool {
-        oauthService.isAuthenticated
-    }
+    @Published private(set) var isAuthenticated: Bool = false
 
     var menuBarIcon: NSImage {
         guard isAuthenticated else {
@@ -30,6 +26,7 @@ final class AppViewModel: ObservableObject {
     private let pollInterval: TimeInterval = 180 // 3 minutes
 
     init() {
+        isAuthenticated = oauthService.isAuthenticated
         if isAuthenticated {
             startPolling()
         }
@@ -45,6 +42,7 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 _ = try await oauthService.signIn()
+                isAuthenticated = true
                 isLoading = false
                 startPolling()
             } catch is CancellationError {
@@ -66,6 +64,7 @@ final class AppViewModel: ObservableObject {
     func signOut() {
         stopPolling()
         oauthService.signOut()
+        isAuthenticated = false
         usageData = .empty
         errorMessage = nil
     }
@@ -104,6 +103,9 @@ final class AppViewModel: ObservableObject {
     // MARK: - Fetch
 
     private func fetchUsage() async {
+        // Re-sync auth state from Keychain in case it changed externally
+        isAuthenticated = oauthService.isAuthenticated
+
         guard oauthService.accessToken != nil else {
             usageData = .empty
             return
