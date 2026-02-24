@@ -1,7 +1,8 @@
 import Foundation
-import WebKit
+import AuthenticationServices
 import CryptoKit
 import AppKit
+import Network
 
 struct OAuthTokenResponse: Decodable {
     let access_token: String
@@ -22,8 +23,10 @@ final class OAuthService: ObservableObject {
 
     private var verifier: String = ""
     private var state: String = ""
-    private var authWindow: NSWindow?
-    private var webViewDelegate: OAuthWebViewDelegate?
+    private var authSession: ASWebAuthenticationSession?
+    private var callbackListener: NWListener?
+    private var oauthPollTimer: DispatchSourceTimer?
+    private let contextProvider = PresentationContextProvider()
 
     var isAuthenticated: Bool {
         KeychainService.load(key: .accessToken) != nil
@@ -33,7 +36,9 @@ final class OAuthService: ObservableObject {
         KeychainService.load(key: .accessToken)
     }
 
-    /// Start the full OAuth PKCE flow
+    /// Start the full OAuth PKCE flow.
+    /// Uses ASWebAuthenticationSession for the browser and a local
+    /// NWListener on port 19876 to capture the localhost redirect.
     func signIn() async throws -> OAuthTokenResponse {
         verifier = generateVerifier()
         state = generateVerifier()
@@ -53,37 +58,115 @@ final class OAuthService: ObservableObject {
         let url = components.url!
 
         let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
-            let config = WKWebViewConfiguration()
-            config.preferences.javaScriptCanOpenWindowsAutomatically = true
-            let webView = WKWebView(frame: .zero, configuration: config)
-            webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
-            let delegate = OAuthWebViewDelegate(continuation: continuation)
-            webView.navigationDelegate = delegate
-            webView.uiDelegate = delegate
-            self.webViewDelegate = delegate
+            let resolver = ContinuationResolver(continuation: continuation)
 
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
-                styleMask: [.titled, .closable, .resizable],
-                backing: .buffered,
-                defer: false
-            )
-            window.title = "Sign in with Claude"
-            window.contentView = webView
-            window.center()
-            window.isReleasedWhenClosed = false
-            window.delegate = delegate
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            self.authWindow = window
+            // Start local server to catch the OAuth redirect
+            guard let listener = try? NWListener(using: .tcp, on: 19876) else {
+                resolver.reject(with: OAuthError.invalidCallback)
+                return
+            }
+            self.callbackListener = listener
 
-            webView.load(URLRequest(url: url))
+            listener.newConnectionHandler = { [weak self] connection in
+                connection.start(queue: .main)
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, error in
+                    // Fix 2: Cancel connection on error or guard failure
+                    if error != nil {
+                        connection.cancel()
+                        return
+                    }
+                    guard let data = data,
+                          let request = String(data: data, encoding: .utf8),
+                          let firstLine = request.components(separatedBy: "\r\n").first,
+                          let path = firstLine.split(separator: " ").dropFirst().first,
+                          let callbackURL = URL(string: "http://localhost:19876\(path)") else {
+                        connection.cancel()
+                        return
+                    }
+
+                    let html = "<html><body><p>Signed in! You can close this tab.</p></body></html>"
+                    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
+                    connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
+                        connection.cancel()
+                    })
+
+                    // Cancel the poll timer on successful callback
+                    self?.oauthPollTimer?.cancel()
+                    self?.oauthPollTimer = nil
+                    listener.cancel()
+                    self?.authSession?.cancel()
+                    self?.authSession = nil
+                    self?.callbackListener = nil
+                    resolver.resolve(with: callbackURL)
+                }
+            }
+
+            listener.stateUpdateHandler = { newState in
+                if case .failed = newState {
+                    listener.cancel()
+                    resolver.reject(with: OAuthError.invalidCallback)
+                }
+            }
+
+            listener.start(queue: .main)
+
+            // Open the OAuth page via ASWebAuthenticationSession
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: "clawusage"
+            ) { [weak self] _, error in
+                // The scheme won't match the localhost redirect, so this only
+                // fires when the user closes the browser (cancellation).
+                self?.oauthPollTimer?.cancel()
+                self?.oauthPollTimer = nil
+                self?.callbackListener?.cancel()
+                self?.callbackListener = nil
+                if error != nil {
+                    resolver.reject(with: OAuthError.cancelled)
+                }
+            }
+
+            session.presentationContextProvider = self.contextProvider
+            session.prefersEphemeralWebBrowserSession = false
+            self.authSession = session
+            session.start()
+
+            // Fix 1: Active polling + timeout after browser opens
+            // Capture specific instances so a stale timer can't affect a later retry
+            let capturedListener = listener
+            let capturedSession = session
+            let startTime = Date()
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now() + 3, repeating: 3)
+            timer.setEventHandler { [weak self] in
+                // Check 1: Did the Keychain get a token while we were waiting?
+                if KeychainService.load(key: .accessToken) != nil {
+                    timer.cancel()
+                    self?.oauthPollTimer = nil
+                    capturedListener.cancel()
+                    capturedSession.cancel()
+                    self?.callbackListener = nil
+                    self?.authSession = nil
+                    resolver.reject(with: OAuthError.timeout)
+                    return
+                }
+                // Check 2: Has 30s passed with no signal?
+                if Date().timeIntervalSince(startTime) > 30 {
+                    timer.cancel()
+                    self?.oauthPollTimer = nil
+                    capturedListener.cancel()
+                    capturedSession.cancel()
+                    self?.callbackListener = nil
+                    self?.authSession = nil
+                    resolver.reject(with: OAuthError.timeout)
+                }
+            }
+            self.oauthPollTimer = timer
+            timer.resume()
         }
 
-        // Clean up
-        authWindow?.close()
-        authWindow = nil
-        webViewDelegate = nil
+        self.authSession = nil
+        self.callbackListener = nil
 
         // Extract code and validate state
         guard let cbComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
@@ -126,9 +209,12 @@ final class OAuthService: ObservableObject {
     }
 
     func cancelSignIn() {
-        authWindow?.close()
-        authWindow = nil
-        webViewDelegate = nil
+        oauthPollTimer?.cancel()
+        oauthPollTimer = nil
+        callbackListener?.cancel()
+        callbackListener = nil
+        authSession?.cancel()
+        authSession = nil
     }
 
     func signOut() {
@@ -192,98 +278,38 @@ final class OAuthService: ObservableObject {
     }
 }
 
-// MARK: - WKWebView delegate that intercepts localhost callback
+// MARK: - Presentation context for ASWebAuthenticationSession
 
-private final class OAuthWebViewDelegate: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
-    private var continuation: CheckedContinuation<URL, Error>?
-    private var popupWebView: WKWebView?
-    private var popupWindow: NSWindow?
+private final class PresentationContextProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
+    }
+}
 
-    init(continuation: CheckedContinuation<URL, Error>) {
+// MARK: - Thread-safe continuation resolver (resumed at most once)
+
+private final class ContinuationResolver<T: Sendable> {
+    private var continuation: CheckedContinuation<T, Error>?
+    private let lock = NSLock()
+
+    init(continuation: CheckedContinuation<T, Error>) {
         self.continuation = continuation
-        super.init()
     }
 
-    private func isLocalhostCallback(_ url: URL) -> Bool {
-        guard let host = url.host else { return false }
-        return (host == "localhost" || host == "127.0.0.1") && url.path == "/callback"
-    }
-
-    private func handleCallback(_ url: URL) {
-        popupWindow?.close()
-        popupWindow = nil
-        popupWebView = nil
-        continuation?.resume(returning: url)
+    func resolve(with value: T) {
+        lock.lock()
+        let cont = continuation
         continuation = nil
+        lock.unlock()
+        cont?.resume(returning: value)
     }
 
-    func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
-    ) {
-        if let url = navigationAction.request.url {
-            if isLocalhostCallback(url) {
-                decisionHandler(.cancel)
-                handleCallback(url)
-                return
-            }
-        }
-        decisionHandler(.allow)
-    }
-
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        // If loading localhost failed, check if the URL was our callback
-        if let url = webView.url, isLocalhostCallback(url) {
-            handleCallback(url)
-            return
-        }
-        if (error as NSError).code == NSURLErrorCancelled { return }
-    }
-
-    // Handle popups (Google sign-in)
-    func webView(
-        _ webView: WKWebView,
-        createWebViewWith configuration: WKWebViewConfiguration,
-        for navigationAction: WKNavigationAction,
-        windowFeatures: WKWindowFeatures
-    ) -> WKWebView? {
-        let popup = WKWebView(frame: .zero, configuration: configuration)
-        popup.customUserAgent = webView.customUserAgent
-        popup.navigationDelegate = self
-        popup.uiDelegate = self
-        self.popupWebView = popup
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Sign in"
-        window.contentView = popup
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.makeKeyAndOrderFront(nil)
-        self.popupWindow = window
-
-        return popup
-    }
-
-    func webViewDidClose(_ webView: WKWebView) {
-        popupWindow?.close()
-        popupWindow = nil
-        popupWebView = nil
-    }
-
-    // MARK: - NSWindowDelegate
-
-    func windowWillClose(_ notification: Notification) {
-        popupWindow?.close()
-        popupWindow = nil
-        popupWebView = nil
-        continuation?.resume(throwing: OAuthError.cancelled)
+    func reject(with error: Error) {
+        lock.lock()
+        let cont = continuation
         continuation = nil
+        lock.unlock()
+        cont?.resume(throwing: error)
     }
 }
 
@@ -293,6 +319,7 @@ enum OAuthError: LocalizedError {
     case noRefreshToken
     case invalidCallback
     case cancelled
+    case timeout
     case tokenExchangeFailed(statusCode: Int, body: String)
 
     var errorDescription: String? {
@@ -303,6 +330,8 @@ enum OAuthError: LocalizedError {
             return "Invalid or missing authorization callback."
         case .cancelled:
             return "Sign in was cancelled."
+        case .timeout:
+            return "Sign in timed out. Please try again."
         case .tokenExchangeFailed(let code, let body):
             return "Token exchange failed (\(code)): \(body)"
         }

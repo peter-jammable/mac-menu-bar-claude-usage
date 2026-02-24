@@ -24,6 +24,7 @@ final class AppViewModel: ObservableObject {
     private let updateService = UpdateService.shared
     private var pollTimer: AnyCancellable?
     private let pollInterval: TimeInterval = 180 // 3 minutes
+    private var signInTask: Task<Void, Never>?
 
     init() {
         isAuthenticated = oauthService.isAuthenticated
@@ -37,26 +38,41 @@ final class AppViewModel: ObservableObject {
     }
 
     func signIn() {
+        signInTask?.cancel()
         isLoading = true
         errorMessage = nil
-        Task {
+        signInTask = Task {
             do {
                 _ = try await oauthService.signIn()
+                guard !Task.isCancelled else { return }
                 isAuthenticated = true
                 isLoading = false
                 startPolling()
             } catch is CancellationError {
+                guard !Task.isCancelled else { return }
                 isLoading = false
             } catch OAuthError.cancelled {
+                guard !Task.isCancelled else { return }
                 isLoading = false
             } catch {
-                errorMessage = error.localizedDescription
-                isLoading = false
+                guard !Task.isCancelled else { return }
+                // Re-sync auth state: the token exchange may have succeeded
+                // even though the continuation timed out
+                isAuthenticated = oauthService.isAuthenticated
+                if isAuthenticated {
+                    isLoading = false
+                    startPolling()
+                } else {
+                    errorMessage = error.localizedDescription
+                    isLoading = false
+                }
             }
         }
     }
 
     func cancelSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
         oauthService.cancelSignIn()
         isLoading = false
     }

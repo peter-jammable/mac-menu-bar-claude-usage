@@ -40,6 +40,11 @@ struct LoginView: View {
                     .font(.caption2)
                     .foregroundColor(.red)
                     .multilineTextAlignment(.center)
+
+                Button("Try Again") {
+                    viewModel.signIn()
+                }
+                .buttonStyle(.borderedProminent)
             }
 
             Divider()
