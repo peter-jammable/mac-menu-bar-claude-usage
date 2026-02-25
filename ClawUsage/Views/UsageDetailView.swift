@@ -6,9 +6,16 @@ struct UsageDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
-            HStack {
-                Text("ClawUsage")
-                    .font(.headline)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ClawUsage")
+                        .font(.headline)
+                    if let updated = viewModel.lastUpdated {
+                        Text("Updated \(updated.formatted(date: .omitted, time: .shortened))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
                 Spacer()
                 Button(action: { viewModel.refresh() }) {
                     Image(systemName: "arrow.clockwise")

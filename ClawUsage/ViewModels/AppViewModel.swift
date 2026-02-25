@@ -6,6 +6,7 @@ final class AppViewModel: ObservableObject {
     @Published var usageData: UsageData = .empty
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var lastUpdated: Date?
     @Published private(set) var isAuthenticated: Bool = false
 
     var menuBarIcon: NSImage {
@@ -119,20 +120,13 @@ final class AppViewModel: ObservableObject {
     // MARK: - Fetch
 
     private func fetchUsage() async {
-        // Re-sync auth state from Keychain in case it changed externally
-        isAuthenticated = oauthService.isAuthenticated
-
-        guard oauthService.accessToken != nil else {
-            usageData = .empty
-            return
-        }
+        guard oauthService.accessToken != nil else { return }
 
         if oauthService.isTokenExpired() {
             do {
                 _ = try await oauthService.refreshAccessToken()
             } catch {
-                signOut()
-                errorMessage = "Session expired. Please sign in again."
+                errorMessage = "Couldn't refresh token — will retry."
                 return
             }
         }
@@ -142,6 +136,7 @@ final class AppViewModel: ObservableObject {
         do {
             let data = try await RateLimitService.fetchUsage(accessToken: currentToken)
             usageData = data
+            lastUpdated = Date()
             errorMessage = nil
         } catch let error as RateLimitError where error == .unauthorized {
             do {
@@ -149,10 +144,10 @@ final class AppViewModel: ObservableObject {
                 guard let refreshedToken = oauthService.accessToken else { return }
                 let data = try await RateLimitService.fetchUsage(accessToken: refreshedToken)
                 usageData = data
+                lastUpdated = Date()
                 errorMessage = nil
             } catch {
-                signOut()
-                errorMessage = "Session expired. Please sign in again."
+                errorMessage = "Couldn't fetch usage — will retry."
             }
         } catch {
             errorMessage = error.localizedDescription
